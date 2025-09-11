@@ -8,7 +8,20 @@ const PORT = process.env.PORT || 3000;
 
 // CORS configuration for JanitorAI
 app.use(cors({
-    origin: ['https://janitorai.com', 'https://*.janitorai.com', 'http://localhost:*'],
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, Postman, etc.)
+        if (!origin) return callback(null, true);
+        
+        // Check if origin matches JanitorAI domains
+        const janitorPattern = /^https:\/\/(www\.|[\w-]+\.)?janitorai\.com$/;
+        const localhostPattern = /^http:\/\/localhost:\d+$/;
+        
+        if (janitorPattern.test(origin) || localhostPattern.test(origin)) {
+            return callback(null, true);
+        }
+        
+        return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
@@ -33,12 +46,12 @@ app.get('/health', (req, res) => {
 // DeepSeek API proxy endpoint
 app.post('/v1/chat/completions', async (req, res) => {
     try {
-        const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.DEEPSEEK_API_KEY;
+        const apiKey = req.headers.authorization?.replace('Bearer ', '');
         
         if (!apiKey) {
             return res.status(401).json({ 
                 error: { 
-                    message: 'API key is required. Set DEEPSEEK_API_KEY environment variable or provide Authorization header.' 
+                    message: 'API key is required' 
                 } 
             });
         }
@@ -60,7 +73,8 @@ app.post('/v1/chat/completions', async (req, res) => {
         console.error('DeepSeek API Error:', {
             message: error.message,
             status: error.response?.status,
-            data: error.response?.data
+            // Don't log response data to avoid leaking sensitive content
+            hasData: !!error.response?.data
         });
 
         if (error.response) {
@@ -86,7 +100,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 // Handle models endpoint
 app.get('/v1/models', async (req, res) => {
     try {
-        const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.DEEPSEEK_API_KEY;
+        const apiKey = req.headers.authorization?.replace('Bearer ', '');
         
         if (!apiKey) {
             return res.status(401).json({ 
@@ -139,14 +153,12 @@ app.use((req, res) => {
     });
 });
 
-app.listen(PORT, 'localhost', () => {
-    console.log(`DeepSeek Proxy Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`DeepSeek Proxy Server running on http://0.0.0.0:${PORT}`);
     console.log('Health check: GET /health');
     console.log('Chat completions: POST /v1/chat/completions');
     console.log('Models list: GET /v1/models');
     
-    if (!process.env.DEEPSEEK_API_KEY) {
-        console.warn('⚠️  DEEPSEEK_API_KEY environment variable not set!');
-        console.warn('   Set it via: DEEPSEEK_API_KEY=your_api_key or provide Authorization header');
-    }
+    console.log('🔐 Authentication: Clients must provide Authorization: Bearer <deepseek_api_key> header');
+    console.log('🌐 CORS: Configured for JanitorAI domains and localhost development');
 });
